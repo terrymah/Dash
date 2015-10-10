@@ -1,4 +1,9 @@
 #include "DGui.h"
+
+#include <dwrite.h>
+#include "utils.h"
+#include "AnimatedVar.h"
+
 #include <algorithm>
 #include <vector>
 #include <memory>
@@ -7,8 +12,8 @@
 namespace tjm {
 namespace dash {
 
-InputManager::InputManager(Object* root) :
-m_root(root)
+InputManager::InputManager() :
+m_root(nullptr)
 {
 	m_info.owner = nullptr;
 }
@@ -18,9 +23,29 @@ void InputManager::SetRoot(Object* root)
 	m_root = root;
 }
 
+void InputManager::SetFocus(Object* focus)
+{
+    m_focus = focus;
+}
+
+void InputManager::OnKey(char key)
+{
+    bool handled = false;
+
+    if (m_focus)
+        handled = m_focus->Key(key);
+
+    if (!handled)
+        handled = m_root->Key(key);
+}
+
 bool InputManager::StartTouch(const D2D1_POINT_2F& point)
 {
-	m_info.owner = m_root->Touch(point);
+    if (m_focus)
+        m_info.owner = m_focus->Touch(point);
+
+    if (!m_info.owner)
+	    m_info.owner = m_root->Touch(point);
 	m_info.originalTouch = point;
 	m_info.currentTouch = point;
 
@@ -54,7 +79,7 @@ bool InputManager::ContinueTouch(const D2D1_POINT_2F& point)
 	return true;
 }
 
-bool InputManager::EndTouch(const D2D1_POINT_2F& point)
+bool InputManager::EndTouch(const D2D1_POINT_2F&)
 {
 	if(!m_info.owner)
 		return false;
@@ -89,6 +114,8 @@ struct ObjectImpl
 	FLOAT m_topMargin;
 	FLOAT m_rightMargin;
 	FLOAT m_bottomMargin;
+    FLOAT m_maxWidth;
+    FLOAT m_maxHeight;
 	tjm::animation::AnimatedVar m_x;
 	tjm::animation::AnimatedVar m_y;
 	tjm::animation::AnimatedVar m_xTrans;
@@ -113,6 +140,8 @@ m_topMargin(0),
 m_rightMargin(0),
 m_bottomMargin(0),
 m_z(0),
+m_maxWidth(0),
+m_maxHeight(0),
 m_zTrusted(false),
 m_dirtyLayout(true),
 m_dirtyChild(false),
@@ -324,6 +353,15 @@ void Object::AddChild(Object* child)
 	DirtyZ();
 }
 
+void Object::InsertChild(Object * child, size_t i)
+{
+    child->SetParent(this);
+    m_pImpl->m_children.insert(m_pImpl->m_children.begin()+i, child);
+    child->DirtyLayout();
+    DirtyLayout();
+    DirtyZ();
+}
+
 void Object::RemoveChild(Object* child)
 {
 	if(child)
@@ -426,6 +464,16 @@ void Object::Layout()
 	}
 }
 
+void Object::OnLayout()
+{
+    std::vector<Object*>& v = m_pImpl->m_children;
+    for (auto& obj : v)
+    {
+        obj->SetPosition({ 0,0 });
+        obj->SetSize(GetSize());
+    }
+}
+
 void Object::Render(ID2D1RenderTarget* pTarget, const D2D1_RECT_F& box, DOUBLE baseOpacity)
 {
 	DOUBLE effectiveOpacity = GetOpacity() * baseOpacity;
@@ -505,6 +553,22 @@ Object* Object::Touch(const D2D1_POINT_2F& pos)
 	}
 
 	return OnTouch(pos);
+}
+
+bool Object::Key(char key)
+{
+    m_pImpl->TrustZ();
+
+    if (OnKey(key))
+        return true;
+
+    for (auto obj = m_pImpl->m_children.rbegin(); obj != m_pImpl->m_children.rend(); ++obj)
+    {
+        if ((*obj)->Key(key))
+            return true;
+    }
+
+    return false;
 }
 
 bool Object::TouchContinue(const TouchInfo& ti)
@@ -587,7 +651,7 @@ D2D1_SIZE_F TestObject::GetPreferredSize(D2D1_SIZE_F& max)
 	return size;
 }
 
-void TestObject::OnRenderForeground(ID2D1RenderTarget* pTarget, const D2D1_RECT_F& box, DOUBLE effectiveOpacity)
+void TestObject::OnRenderBackground(ID2D1RenderTarget* pTarget, const D2D1_RECT_F&, DOUBLE effectiveOpacity)
 {
 	CComPtr<ID2D1SolidColorBrush> brush;
 	D2D1_RECT_F render;
@@ -612,6 +676,221 @@ bool PannableObject::OnTouchContinue(const TouchInfo& ti)
 	SetTranslationXDelta(ti.currentTouch.x - ti.previousTouch.x);
 	SetTranslationYDelta(ti.currentTouch.y - ti.previousTouch.y);
 	return true;
+}
+
+struct TextLabelImpl
+{
+    std::string m_text;
+    std::string m_font;
+    FLOAT m_size;
+    D2D1_SIZE_F m_max;
+
+    CComPtr<IDWriteFactory> m_factory;
+    CComPtr<IDWriteTextFormat> m_format;
+    CComPtr<IDWriteTextLayout> m_layout;
+
+    void EnsureFormat();
+    void EnsureLayout();
+
+    TextLabelImpl();
+    TextLabelImpl(const std::string & text, const std::string & font, FLOAT size);
+};
+
+void TextLabelImpl::EnsureFormat()
+{
+    if (!m_format) {
+        CORt(m_factory->CreateTextFormat(towide(m_font).c_str(), nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, m_size, L"", &m_format));
+    }
+}
+
+void TextLabelImpl::EnsureLayout()
+{
+    EnsureFormat();
+
+    if (!m_layout) {
+        CORt(m_factory->CreateTextLayout(towide(m_text).c_str(), m_text.length(), m_format, m_max.width, m_max.height, &m_layout));
+    }
+}
+
+TextLabelImpl::TextLabelImpl() :
+    m_font("Ariel"),
+    m_size(17.0),
+    m_max{ 10000,10000 }
+{
+    CORt(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(&m_factory)));
+}
+
+TextLabelImpl::TextLabelImpl(const std::string& text, const std::string& font, FLOAT size) :
+    m_text(text),
+    m_font(font),
+    m_size(size),
+    m_max{ 10000,10000 }
+{
+    CORt(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(&m_factory)));
+}
+
+TextLabel::TextLabel() :
+    m_pImpl(new TextLabelImpl())
+{
+}
+
+TextLabel::~TextLabel()
+{
+    delete m_pImpl;
+}
+
+TextLabel::TextLabel(const std::string& text, const std::string& font, FLOAT size) :
+    m_pImpl(new TextLabelImpl(text, font, size))
+{
+}
+
+void TextLabel::SetText(const std::string& text)
+{
+    m_pImpl->m_text = text;
+    m_pImpl->m_layout.Release();
+}
+
+void TextLabel::SetFont(const std::string& font)
+{
+    m_pImpl->m_font = font;
+    m_pImpl->m_format.Release();
+}
+
+void TextLabel::SetSize(FLOAT size)
+{
+    m_pImpl->m_size = size;
+    m_pImpl->m_format.Release();
+}
+
+void TextLabel::OnRenderForeground(ID2D1RenderTarget * pTarget, const D2D1_RECT_F & /*rect*/, DOUBLE /* opacity */)
+{
+    if ((GetSize().height != m_pImpl->m_max.height) || (GetSize().width != m_pImpl->m_max.width))
+    {
+        m_pImpl->m_max = GetSize();
+        m_pImpl->m_layout.Release();
+        m_pImpl->EnsureLayout();
+    }
+    CComPtr<ID2D1SolidColorBrush> brush;
+    pTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &brush);
+    pTarget->DrawTextLayout({ 0,0 }, m_pImpl->m_layout, brush);
+}
+
+D2D1_SIZE_F TextLabel::GetPreferredSize(D2D1_SIZE_F & max)
+{
+    if ((max.height != m_pImpl->m_max.height) || (max.width != m_pImpl->m_max.width))
+    {
+        m_pImpl->m_max = max;
+        m_pImpl->m_layout.Release();
+        m_pImpl->EnsureLayout();
+    }
+    
+    DWRITE_TEXT_METRICS metrics;
+    CORt(m_pImpl->m_layout->GetMetrics(&metrics));
+    D2D1_SIZE_F preferred;
+    preferred.height = metrics.height;
+    preferred.width = metrics.width;
+
+    return preferred;
+}
+
+struct ListViewImpl
+{
+    Orientation m_orientation;
+    Direction m_direction;
+};
+
+ListView::ListView() :
+    m_pImpl(new ListViewImpl())
+{
+    m_pImpl->m_orientation = Orientation::Horizontal;
+}
+
+ListView::~ListView()
+{
+    delete m_pImpl;
+}
+
+void ListView::SetOrientation(Orientation o)
+{
+    if (m_pImpl->m_orientation != o)
+    {
+        m_pImpl->m_orientation = o;
+        DirtyLayout();
+    }
+}
+
+Orientation ListView::GetOrientation() const
+{
+    return m_pImpl->m_orientation;
+}
+
+void ListView::SetDirection(Direction d)
+{
+    if (m_pImpl->m_direction != d)
+    {
+        m_pImpl->m_direction = d;
+        DirtyLayout();
+    }
+}
+
+Direction ListView::GetDirection() const
+{
+    return m_pImpl->m_direction;
+}
+
+void ListView::OnLayout()
+{
+    D2D1_SIZE_F maxSize = GetFinalSize();
+
+    FLOAT offset = 0;
+    for (size_t i = 0; i < NumChildren(); ++i) {
+        Object* child = GetChild(i);
+        FLOAT left, right, top, bottom;
+        child->GetMargins(left, top, right, bottom);
+
+        D2D1_SIZE_F localMaxSize = maxSize;
+        localMaxSize.height -= (top + bottom);
+        localMaxSize.width -= (left + right);
+
+        D2D1_SIZE_F preferredSize = child->GetPreferredSize(localMaxSize);
+        
+        if (GetOrientation() == Orientation::Vertical) {
+            if (GetDirection() == Direction::TopDown) {
+                offset += top;
+                child->SetPosition(D2D1::Point2F(left, offset));
+                child->SetSize(preferredSize);
+                offset += preferredSize.height;
+                offset += bottom;
+            }
+            else {
+                offset += bottom;
+                offset += preferredSize.height;
+                child->SetPosition(D2D1::Point2F(left, maxSize.height-offset));
+                child->SetSize(preferredSize);
+                offset += top;
+            }
+        }
+        else {
+            if (GetDirection() == Direction::LeftRight) {
+                offset += left;
+                child->SetPosition(D2D1::Point2F(offset, top));
+                child->SetSize(preferredSize);
+                offset += preferredSize.width;
+                offset += right;
+            }
+            else {
+                offset += right;
+                offset += preferredSize.width;
+                child->SetPosition(D2D1::Point2F(offset, top));
+                child->SetSize(preferredSize);
+                offset += left;
+            }
+        }
+    }
+
+    for (size_t i = 0; i < NumChildren(); ++i) {
+        GetChild(i)->SetVisible(true);
+    }
 }
 
 } // end namespace dash

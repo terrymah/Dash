@@ -8,7 +8,7 @@
 #endif
 
 #include <d2d1.h>
-#include "AnimatedVar.h"
+#include <string>
 
 namespace tjm {
 namespace dash {
@@ -17,6 +17,14 @@ enum class Orientation
 {
 	Horizontal,
 	Vertical
+};
+
+enum class Direction
+{
+    TopDown,
+    LeftRight = TopDown,
+    BottomUp,
+    RightLeft = BottomUp
 };
 
 class Object;
@@ -31,9 +39,10 @@ struct TouchInfo
 class DUI_API InputManager
 {
 public:
-	InputManager(Object* root);
+	InputManager();
+    void OnKey(char key);
 	void SetRoot(Object* root);
-
+    void SetFocus(Object* focus);
 	bool StartTouch(const D2D1_POINT_2F& point);
 	bool ContinueTouch(const D2D1_POINT_2F& point);
 	bool EndTouch(const D2D1_POINT_2F& point);
@@ -41,6 +50,7 @@ public:
 private:
 	TouchInfo TranslateToObjLocal(Object* obj);
 	Object* m_root;
+    Object* m_focus;
 	TouchInfo m_info;
 };
 
@@ -58,6 +68,7 @@ public:
 	Object* GetChild(size_t i);
 	const Object* GetChild(size_t i) const;
 	void AddChild(Object* child);
+    void InsertChild(Object* child, size_t i);
 	void RemoveChild(Object* child);
 
 	void Render(ID2D1RenderTarget* pTarget, const D2D1_RECT_F& box, DOUBLE opacity=1.0);
@@ -114,6 +125,7 @@ public:
 	// Input Handling
 	D2D1_POINT_2F WorldToLocal(const D2D1_POINT_2F& world) const;
 	Object* Touch(const D2D1_POINT_2F& pos);
+    bool Key(char key);
 	bool TouchContinue(const TouchInfo& ti);
 	void TouchFinish(const TouchInfo& ti);
 
@@ -125,10 +137,11 @@ protected:
 	virtual void OnRenderBackground(ID2D1RenderTarget*, const D2D1_RECT_F& /*box*/, DOUBLE /*effectiveOpacity*/) { }
 	virtual void OnRenderForeground(ID2D1RenderTarget*, const D2D1_RECT_F& /*box*/, DOUBLE /*effectiveOpacity*/) { }
 	virtual void OnVisibilityChange(bool /* visible */) { }
-	virtual void OnLayout() { }
-	virtual Object* OnTouch(const D2D1_POINT_2F& pos) { return nullptr; }
-	virtual bool OnTouchContinue(const TouchInfo& ti) { return false; }
-	virtual void OnTouchFinish(const TouchInfo& ti) { }
+    virtual void OnLayout();
+	virtual Object* OnTouch(const D2D1_POINT_2F& /*pos*/) { return nullptr; }
+    virtual bool OnKey(char /*key*/) { return false; }
+	virtual bool OnTouchContinue(const TouchInfo& /*ti*/) { return false; }
+	virtual void OnTouchFinish(const TouchInfo& /*ti*/) { }
 
 private:
 	ObjectImpl* m_pImpl;
@@ -222,19 +235,113 @@ private:
 	SplitterImpl* m_pImpl;
 };
 
-class DUI_API TestObject : public Object
+struct TextLabelImpl;
+class DUI_API TextLabel : public Object
 {
 public:
-	TestObject(D2D1_COLOR_F color);
+    TextLabel();
+    TextLabel(const std::string& text, const std::string& font, FLOAT size);
+    ~TextLabel();
+
+    void SetText(const std::string& text);
+    void SetFont(const std::string& font);
+    void SetSize(FLOAT size);
+
+private:
+    virtual void OnRenderForeground(ID2D1RenderTarget*, const D2D1_RECT_F& /*box*/, DOUBLE /*effectiveOpacity*/);
+    virtual D2D1_SIZE_F GetPreferredSize(D2D1_SIZE_F& max);
+
+    TextLabelImpl* m_pImpl;
+};
+
+struct ListViewImpl;
+class DUI_API ListView : public Object
+{
+public:
+    ListView();
+    ~ListView();
+
+    void SetOrientation(Orientation o);
+    Orientation GetOrientation() const;
+
+    void SetDirection(Direction d);
+    Direction GetDirection() const;
+
+private:
+    virtual void OnLayout();
+
+    ListViewImpl* m_pImpl;
+};
+
+struct DebugConsoleImpl;
+class DUI_API DebugConsole : public Object
+{
+public:
+    DebugConsole();
+    ~DebugConsole();
+
+    void Log(const std::string text);
+
+private:
+    void OnVisibilityChange(bool visible);
+
+    DebugConsoleImpl* m_pImpl;
+};
+
+class DUI_API SolidObject : public Object
+{
+public:
+    SolidObject(D2D1_COLOR_F color);
 
 	virtual D2D1_SIZE_F GetPreferredSize(D2D1_SIZE_F& max);
 private:
-	virtual void OnRenderForeground(ID2D1RenderTarget*, const D2D1_RECT_F& /*box*/, DOUBLE /*effectiveOpacity*/);
+	virtual void OnRenderBackground(ID2D1RenderTarget*, const D2D1_RECT_F& /*box*/, DOUBLE /*effectiveOpacity*/);
 
 	D2D1_COLOR_F m_color;
 };
 
+class DashApplication;
+class ApplicationCore
+{
+public:
+	virtual void InitializeApplication(DashApplication* app) = 0;
+	virtual void DestroyApplication(DashApplication* app) = 0;
 
+	virtual void PreRender(DashApplication* /*app*/) {}
+	virtual void PostRender(DashApplication* /*app*/) {}
+};
+
+struct DashApplicationImpl;
+class DUI_API DashApplication
+{
+public:
+	DashApplication();
+
+    // Run with a sample application core
+    void Run();
+    void Run(ApplicationCore* core);
+
+    void Refresh();
+
+	// ApplicationCore::InitializeApplication should call SetRoot
+	void SetRoot(Object* root);
+    Object* GetRoot() const;
+
+    // Focus always gets first change at input processing, then root
+    void SetFocus(Object* focus);
+    Object* GetFocus() const;
+
+private:
+	HRESULT CreateDeviceIndependentResources();
+	HRESULT CreateDeviceResources();
+    
+	void OnRender();
+	void OnResize(UINT width, UINT height);
+
+	static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+
+	DashApplicationImpl* m_pImpl;
+};
 
 } // end namespace dash
 } // end namespace tjm

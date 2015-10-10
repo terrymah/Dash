@@ -1,6 +1,7 @@
 #include "DGui.h"
 #include "atlbase.h"
 #include "utils.h"
+#include "AnimatedVar.h"
 
 namespace tjm {
 namespace dash {
@@ -216,8 +217,8 @@ void Splitter::Restore()
 void Splitter::OnLayout()
 {
 	tjm::animation::StoryBoard b;
-	FLOAT left, top, right, bottom;
-	FLOAT secondLeft, secondTop, secondRight, secondBottom;
+	FLOAT left=0, top=0, right=0, bottom=0;
+	FLOAT secondLeft=0, secondTop=0, secondRight=0, secondBottom=0;
 
 	// First, set the position of the splitter
 	SetBounds();
@@ -406,7 +407,7 @@ void Splitter::SetBounds()
 	m_pImpl->m_splitterPos.SetMax(&max);
 }
 
-void Splitter::OnRenderForeground(ID2D1RenderTarget* pTarget, const D2D1_RECT_F& /*box*/, DOUBLE effectiveOpacity)
+void Splitter::OnRenderForeground(ID2D1RenderTarget* pTarget, const D2D1_RECT_F& /*box*/, DOUBLE /*effectiveOpacity*/)
 {
 	if(!m_pImpl->m_brush)
 	{
