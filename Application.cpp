@@ -55,9 +55,9 @@ public:
 	virtual void DestroyApplication(DashApplication* app);
 
 private:
-	TestObject m_left;
+    SolidObject m_left;
     ListView m_list;
-	TestObject m_right;
+    SolidObject m_right;
     TextLabel m_labelLeft;
     TextLabel m_labelLeft2;
     TextLabel m_labelLeft3;

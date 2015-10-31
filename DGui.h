@@ -283,7 +283,7 @@ public:
     void Log(const std::string text);
 
 private:
-    void OnVisibilityChange(bool visible);
+    //void OnVisibilityChange(bool visible);
 
     DebugConsoleImpl* m_pImpl;
 };

@@ -638,12 +638,12 @@ void Clip(D2D1_RECT_F& in, const D2D1_RECT_F& clippingRect)
 		in.top = clippingRect.top;
 }
 
-TestObject::TestObject(D2D1_COLOR_F color) :
+SolidObject::SolidObject(D2D1_COLOR_F color) :
 m_color(color)
 {
 }
 
-D2D1_SIZE_F TestObject::GetPreferredSize(D2D1_SIZE_F& max)
+D2D1_SIZE_F SolidObject::GetPreferredSize(D2D1_SIZE_F& max)
 {
 	D2D1_SIZE_F size;
 	size.height = min(max.height, max.width);
@@ -651,7 +651,7 @@ D2D1_SIZE_F TestObject::GetPreferredSize(D2D1_SIZE_F& max)
 	return size;
 }
 
-void TestObject::OnRenderBackground(ID2D1RenderTarget* pTarget, const D2D1_RECT_F&, DOUBLE effectiveOpacity)
+void SolidObject::OnRenderBackground(ID2D1RenderTarget* pTarget, const D2D1_RECT_F&, DOUBLE effectiveOpacity)
 {
 	CComPtr<ID2D1SolidColorBrush> brush;
 	D2D1_RECT_F render;
