@@ -4,6 +4,8 @@
 #include "windows.h"
 #include "Windowsx.h"
 #include <exception>
+#include <vector>
+#include <mutex>
 
 #ifndef HINST_THISCOMPONENT
 EXTERN_C IMAGE_DOS_HEADER __ImageBase;
@@ -38,6 +40,9 @@ struct DashApplicationImpl
 	HWND m_hwnd;
 	ID2D1Factory* m_pDirect2dFactory;
 	ID2D1HwndRenderTarget* m_pRenderTarget;
+
+    std::mutex m_mainThreadLock;
+    std::vector<std::function<void()>> m_mainThreadQueue;
 
 	DashApplicationImpl(DashApplication* app);
 };
@@ -146,6 +151,15 @@ HRESULT DashApplication::CreateDeviceResources()
 
 void DashApplication::OnRender()
 {
+    std::vector<std::function<void()>> pendingTasks;
+    {
+        std::lock_guard<std::mutex> g(m_pImpl->m_mainThreadLock);
+        pendingTasks.swap(m_pImpl->m_mainThreadQueue);
+    }
+    for (auto& f : pendingTasks) {
+        f();
+    }
+
 	m_pImpl->m_core->PreRender(this);
 
 	CORt(CreateDeviceResources());
@@ -276,6 +290,13 @@ LRESULT CALLBACK DashApplication::WndProc(HWND hwnd, UINT message, WPARAM wParam
 	}
 
 	return result;
+}
+
+void DashApplication::OnMainThread(std::function<void()> func)
+{
+    std::lock_guard<std::mutex> g(m_pImpl->m_mainThreadLock);
+    m_pImpl->m_mainThreadQueue.push_back(func);
+    Refresh();
 }
 
 // Creates resources that are not bound to a particular device.

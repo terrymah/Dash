@@ -9,6 +9,7 @@
 
 #include <d2d1.h>
 #include <string>
+#include <functional>
 
 namespace tjm {
 namespace dash {
@@ -331,6 +332,7 @@ public:
     void SetFocus(Object* focus);
     Object* GetFocus() const;
 
+    void OnMainThread(std::function<void()> func);
 private:
 	HRESULT CreateDeviceIndependentResources();
 	HRESULT CreateDeviceResources();
